@@ -188,7 +188,7 @@ bcl-convert \
 sbatch /group/ll010/hgao/demultiplex/demux_run.slurm \
   /group/llshared/sequencing_data/NovaSeqX/<RUN_FOLDER> \
   1 \
-  /group/llshared/sequencing_data/NovaSeqX/<RUN_FOLDER>/SampleSheet.csv
+  /group/ll010/hgao/demultiplex/Sample_sheet_260716_CUT5base_seq.csv
 ```
 
 Positional arguments: (1) run folder, (2) barcode mismatch allowance — `1` allows one mismatched base, (3) SampleSheet path.
