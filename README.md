@@ -1,24 +1,17 @@
-# OverrideCycles Builder
+# NovaSeq X demultiplexing — OverrideCycles & SampleSheets
 
-A single-page, dependency-free web tool for building the `OverrideCycles` string used by Illumina **bcl-convert** on NovaSeq X runs.
+Reference and tooling for demultiplexing Illumina NovaSeq X runs with **bcl-convert**, focused on CUT&Tag and CUT5base (easySci) libraries. Includes a browser tool that builds the `OverrideCycles` string, ready-to-edit SampleSheet templates, and the run commands.
 
-You enter the run's cycle structure and, for each read, fill any of **Y / I / N / U** with a length and a start position. The tool places the segments, pads gaps with `N`, and writes the string (e.g. `Y134;I8N2;N50U10;Y134`).
+## Contents
 
-## Why
+- [`index.html`](index.html) — OverrideCycles Builder (web app, no dependencies)
+- OverrideCycles cheat sheet — [short reads](#short-reads-2--61-cycle) and [long reads](#long-reads-2--134-cycle)
+- SampleSheet templates for each library type
+- [Running bcl-convert](#running-bcl-convert) — direct command and SLURM wrapper
 
-Getting `OverrideCycles` right is fiddly: segment order is position-sensitive (`I8N2` ≠ `N2I8`), i5 (Index 2) is read reverse-complement on NovaSeq X, and each read's tokens must sum to its full cycle count. This tool makes those constraints visible and hard to get wrong.
+## The OverrideCycles Builder
 
-## Features
-
-- **Four cycle inputs** — Read1 / Index1 (i7) / Index2 (i5) / Read2, taken from `RunInfo.xml`.
-- **Per-read Y / I / N / U segments** — each with a length and a 1-based start position; leave a row blank to skip it.
-- **Automatic N padding** — any cycle not covered by a segment becomes `N`.
-- **i5 auto-reverse** — fill i5 in physical read order; the tool reverses its tokens to match bcl-convert's reverse-complement convention. The ruler shows what you typed; the output shows what bcl-convert needs.
-- **Live rulers** — a colored bar per read shows the Y/I/N/U layout as you type.
-- **Overlap & overflow detection** — warns if two segments claim the same cycle or a segment runs past the read length.
-- **Generate / Regenerate** — build the string on demand; **Copy string** copies the current value.
-
-## Letter meanings
+Open [`index.html`](index.html) in any browser. Enter the run's four cycle counts, then for each read fill any of **Y / I / N / U** with a length and a 1-based start position. Uncovered cycles are padded with `N`, and Index 2 (i5) is auto-reversed to match NovaSeq X's reverse-complement read.
 
 | Letter | Meaning |
 |---|---|
@@ -27,26 +20,184 @@ Getting `OverrideCycles` right is fiddly: segment order is position-sensitive (`
 | `N` | masked / discarded cycles |
 | `U` | UMI, trimmed into the FASTQ header |
 
-## Usage
+Two builds exist historically: `overridecycles_builder_V1_autorefresh.html` (live update) and `overridecycles_builder_V2_generator.html` (explicit Generate button). The current `index.html` is the generator build.
 
-Open `index.html` in any modern browser. No build step, no dependencies, no network calls.
+## OverrideCycles cheat sheet
 
-### Example — `Y134;I8N2;N50U10;Y134`
+Segment order is `Read1 ; Index1(i7) ; Index2(i5) ; Read2` and is **position-sensitive** — `I8N2` (index at cycle 1) is not the same as `N2I8` (index at cycle 3). Each read's tokens must sum to its full cycle count.
 
-Run structure: Read1 = 134, Index1 = 10, Index2 = 60, Read2 = 134.
+### Short reads (2 × 61 cycle)
 
-| Read | Row | Length | Start |
-|---|---|---|---|
-| Read 1 | Y | 134 | 1 |
-| Index 1 (i7) | I | 8 | 1 |
-| Index 2 (i5) | U | 10 | 1 |
-| Read 2 | Y | 134 | 1 |
+Run structure: Read1 = 57, Read2 = 61, Index1 = 10, Index2 = 10.
 
-i7 keeps 8 bp of index and auto-pads `N2`. i5 is filled in physical order (UMI first) and auto-reversed to `N50U10`. Click **Generate**.
+| Library type | OverrideCycles | Notes |
+|---|---|---|
+| General CUT&Tag (dual index) | `Y57;I8N2;N2I8;Y61` | 8 bp index, i5 index sits at cycle 3 |
+| CUT5base / easySci (i7-only) | `Y57;I8N2;U10;Y61` | i5 read taken as 10 bp UMI |
 
-## Notes on i5 (Index 2)
+### Long reads (2 × 134 cycle)
 
-On NovaSeq X, Index 2 is read reverse-complement (`IsIndexedRead=Y`, `IsReverseComplement=Y` in `RunInfo.xml`). Fill i5 in the order you physically read it; the emitted tokens are reversed for you. If i5 keeps any `I` cycles, your SampleSheet's `[BCLConvert_Data]` section needs an `Index2` column.
+Run structure: Read1 = 134, Read2 = 134, Index1 = 10, Index2 = 60.
+
+| Library type | OverrideCycles | Notes |
+|---|---|---|
+| General CUT&Tag / multiome (dual index) | `Y50N84;I8N2;N52I8;Y71N63` | see breakdown below |
+| CUT5base (i7-only) | `Y134;I8N2;N50U10;Y134` | i5 read: discard 50, keep 10 as UMI |
+
+Breakdown of `Y50N84;I8N2;N52I8;Y71N63`:
+- Read1 — keep first 50 bp, discard last 84
+- Index1 (i7) — keep 8 bp, discard last 2
+- Index2 (i5) — discard first 52 bp, keep last 8 as index
+- Read2 — keep first 71 bp, discard last 63
+
+## SampleSheet templates
+
+Each block below goes in a `.csv`. Fill `Index` / `Index2` per sample. `NA` in Index2 means i5 is not used for demultiplexing.
+
+### General CUT&Tag, short reads (dual index)
+
+```
+[Header]
+FileFormatVersion,2
+RunName,RL
+RunDescription,CUT&Tag
+InstrumentPlatform,NovaSeqXSeries
+IndexOrientation,Forward
+
+[Reads]
+Read1Cycles,57
+Read2Cycles,61
+Index1Cycles,10
+Index2Cycles,10
+
+[BCLConvert_Settings]
+SoftwareVersion,4.1.7
+BarcodeMismatchesIndex1,0
+BarcodeMismatchesIndex2,0
+FastqCompressionFormat,gzip
+
+[BCLConvert_Data]
+Sample_ID,Index,Index2,OverrideCycles,Sample_Project
+RL8264_..._shear_control_lamdaDNA_PUC19,TAAGGCGA,CGTCTAAT,Y57;I8N2;N2I8;Y61,chromatin_remodeling_CUTnTag
+RL8311_..._H3K4me2_spikein,AACGGGTG,CTCTCTAT,Y57;I8N2;N2I8;Y61,chromatin_remodeling_CUTnTag
+```
+
+### CUT5base / easySci, short reads (i7-only demux)
+
+Index 2 is not declared; i5 cycles are taken as a UMI.
+
+```
+[Header]
+FileFormatVersion,2
+RunName,S587
+RunDescription,CUT&Tag
+InstrumentPlatform,NovaSeqXSeries
+IndexOrientation,Forward
+
+[Reads]
+Read1Cycles,57
+Read2Cycles,61
+Index1Cycles,10
+
+[BCLConvert_Settings]
+SoftwareVersion,4.1.7
+BarcodeMismatchesIndex1,0
+CreateFastqForIndexReads,1
+TrimUMI,0
+FastqCompressionFormat,gzip
+
+[BCLConvert_Data]
+Sample_ID,Index,Index2,OverrideCycles,Sample_Project
+RL8262_..._CUTnTagno5base_2ndTn5,CGTACTAG,NA,Y57;I8N2;U10;Y61,CUT5base
+RL8263_..._CUTnTag5base_spikincontrol,AGGCAGAA,NA,Y57;I8N2;U10;Y61,CUT5base
+```
+
+### General multiome / methylome, long reads (dual index, per-lane)
+
+```
+[Header]
+FileFormatVersion,2
+RunName,10B_5Base_methylomes_..._HG_DL_DM_OC
+RunDescription,5base
+InstrumentPlatform,NovaSeqXSeries
+IndexOrientation,Forward
+
+[Reads]
+Read1Cycles,134
+Read2Cycles,134
+Index1Cycles,10
+Index2Cycles,60
+
+[BCLConvert_Settings]
+BarcodeMismatchesIndex1,0
+FastqCompressionFormat,gzip
+
+[BCLConvert_Data]
+Lane,Sample_ID,Index,Index2,OverrideCycles,Sample_Project
+6,RL8461_..._multiome_Rhapsody_GEX,CGGAGCCT,ATAGAGGC,Y50N84;I8N2;N52I8;Y71N63,Engram
+6,RL8462_..._multiome_Rhapsody_HTOs,CGGCTATG,CAGGACGT,Y50N84;I8N2;N52I8;Y71N63,Engram
+```
+
+### CUT5base, long reads (i7-only demux)
+
+Index 2 is not declared; i5 read: discard 50 bp, keep last 10 as UMI.
+
+```
+[Header]
+FileFormatVersion,2
+RunName,CUT5baseHG
+RunDescription,CUT&Tag
+InstrumentPlatform,NovaSeqXSeries
+IndexOrientation,Forward
+
+[Reads]
+Read1Cycles,134
+Read2Cycles,134
+Index1Cycles,10
+
+[BCLConvert_Settings]
+SoftwareVersion,4.1.7
+BarcodeMismatchesIndex1,0
+CreateFastqForIndexReads,1
+TrimUMI,0
+FastqCompressionFormat,gzip
+
+[BCLConvert_Data]
+Sample_ID,Index,Index2,OverrideCycles,Sample_Project
+RL8472_..._CUTnTagno5base_H3K4me1,CGTACTAG,NA,Y134;I8N2;N50U10;Y134,CUT5base_HG
+RL8473_..._CUTnTagno5base_H3K27ac,AGGCAGAA,NA,Y134;I8N2;N50U10;Y134,CUT5base_HG
+```
+
+## Running bcl-convert
+
+### Direct command
+
+```bash
+bcl-convert \
+  --bcl-input-directory /group/llshared/sequencing_data/NovaSeqX/<RUN_FOLDER> \
+  --output-directory    /group/llshared/sequencing_data/NovaSeqX/<RUN_FOLDER>/fastqs/ \
+  --bcl-sampleproject-subdirectories true \
+  --no-lane-splitting true \
+  --force \
+  --sample-sheet /path/to/SampleSheet.csv
+```
+
+### SLURM wrapper
+
+```bash
+sbatch /group/ll010/hgao/demultiplex/demux_run.slurm \
+  /group/llshared/sequencing_data/NovaSeqX/<RUN_FOLDER> \
+  1 \
+  /group/llshared/sequencing_data/NovaSeqX/<RUN_FOLDER>/SampleSheet.csv
+```
+
+Positional arguments: (1) run folder, (2) barcode mismatch allowance — `1` allows one mismatched base, (3) SampleSheet path.
+
+## Notes
+
+- On NovaSeq X, Index 2 (i5) is read reverse-complement (`IsReverseComplement=Y` in `RunInfo.xml`). Fill i5 in physical order in the web app; tokens are reversed for you.
+- If Index 2 keeps any `I` cycles, the SampleSheet's `[BCLConvert_Data]` must include an `Index2` column. For i7-only demux, drop `Index2Cycles` from `[Reads]` and mask i5 in OverrideCycles.
+- Cycle counts should always match the run's `RunInfo.xml`.
 
 ## License
 
