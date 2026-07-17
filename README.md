@@ -1,5 +1,11 @@
 # NovaSeq X demultiplexing — OverrideCycles & SampleSheets
 
+---
+## Novaseq X
+![NovaseqX sequence](././png/NovaseqX.png)
+
+---
+
 Reference and tooling for demultiplexing Illumina NovaSeq X runs with **bcl-convert**, focused on CUT&Tag and CUT5base (easySci) libraries. Includes a browser tool that builds the `OverrideCycles` string, ready-to-edit SampleSheet templates, and the run commands.
 
 ## Contents
