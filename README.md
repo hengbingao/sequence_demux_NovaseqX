@@ -5,6 +5,7 @@
 ![NovaseqX sequence](././png/NovaseqX.png)
 
 ---
+####https://hengbingao.github.io/sequence_demux_NovaseqX/overridecycles_builder/overridecycles_builder_V1_autorefresh.html##
 
 Reference and tooling for demultiplexing Illumina NovaSeq X runs with **bcl-convert**, focused on CUT&Tag and CUT5base (easySci) libraries. Includes a browser tool that builds the `OverrideCycles` string, ready-to-edit SampleSheet templates, and the run commands.
 
