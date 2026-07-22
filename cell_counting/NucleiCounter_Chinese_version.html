@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NucleiCounter · 批量细胞核计数</title>
+<style>
+  :root{
+    --bg:#0d1117;
+    --panel:#161b22;
+    --panel-2:#1c2129;
+    --line:#2a313c;
+    --ink:#e6edf3;
+    --ink-dim:#8b949e;
+    --accent:#3fb6ff;      /* DAPI blue, drawn from the image itself */
+    --accent-2:#ff5a5a;    /* outline red */
+    --ok:#3fb950;
+    --warn:#d29922;
+    --mono:"SF Mono",ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
+    --sans:"Inter",-apple-system,"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:14px;line-height:1.5;
+    display:grid;grid-template-rows:auto 1fr;
+  }
+  header{
+    border-bottom:1px solid var(--line);
+    padding:14px 22px;display:flex;align-items:baseline;gap:16px;
+    background:linear-gradient(180deg,#11161d,#0d1117);
+  }
+  header .logo{
+    font-family:var(--mono);font-weight:600;font-size:16px;letter-spacing:.5px;
+    color:var(--ink);
+  }
+  header .logo b{color:var(--accent)}
+  header .sub{color:var(--ink-dim);font-size:12.5px}
+  header .spacer{flex:1}
+  header .env{
+    font-family:var(--mono);font-size:11px;color:var(--ink-dim);
+    border:1px solid var(--line);border-radius:4px;padding:3px 8px;
+  }
+
+  main{display:grid;grid-template-columns:340px 1fr;min-height:0}
+  .controls{
+    border-right:1px solid var(--line);background:var(--panel);
+    overflow-y:auto;padding:18px;
+  }
+  .stage{
+    display:grid;grid-template-rows:1fr auto;min-height:0;background:
+      repeating-conic-gradient(#0e131a 0% 25%,#0b0f15 0% 50%) 50%/22px 22px;
+  }
+  .viewport{
+    overflow:auto;display:flex;align-items:center;justify-content:center;
+    padding:24px;min-height:0;
+  }
+  .viewport canvas{
+    max-width:100%;max-height:100%;image-rendering:auto;
+    border:1px solid var(--line);border-radius:6px;
+    box-shadow:0 8px 40px rgba(0,0,0,.5);background:#000;
+  }
+  .empty{color:var(--ink-dim);text-align:center;font-size:13px}
+  .empty svg{display:block;margin:0 auto 14px;opacity:.5}
+
+  /* control groups */
+  .grp{margin-bottom:20px}
+  .grp > .lab{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:1px;
+    text-transform:uppercase;color:var(--ink-dim);
+    margin-bottom:10px;display:flex;align-items:center;gap:8px;
+  }
+  .grp > .lab::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  button.primary,button.file{
+    width:100%;border:1px solid var(--line);background:var(--panel-2);
+    color:var(--ink);padding:10px 12px;border-radius:6px;cursor:pointer;
+    font-family:var(--sans);font-size:13px;font-weight:500;transition:.15s;
+  }
+  button.file:hover,button.primary:hover{border-color:var(--accent);background:#20272f}
+  button.primary{
+    background:var(--accent);color:#04121d;border-color:var(--accent);
+    font-weight:600;margin-top:4px;
+  }
+  button.primary:hover{background:#5cc4ff}
+  button.primary:disabled{opacity:.4;cursor:not-allowed;background:var(--panel-2);color:var(--ink-dim);border-color:var(--line)}
+
+  .folder-meta{font-size:12px;color:var(--ink-dim);margin-top:8px;font-family:var(--mono)}
+
+  .filelist-wrap{margin-top:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .filelist-head{display:flex;align-items:center;justify-content:space-between;
+    padding:7px 10px;background:var(--panel-2);border-bottom:1px solid var(--line)}
+  .filelist-head .check.tiny{font-size:12px;padding:0}
+  .sel-count{font-family:var(--mono);font-size:11px;color:var(--accent)}
+  .filelist{max-height:180px;overflow-y:auto;background:#0e1620}
+  .filelist .item{display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;
+    font-size:12px;border-bottom:1px solid rgba(42,49,60,.5)}
+  .filelist .item:last-child{border-bottom:0}
+  .filelist .item:hover{background:#141d29}
+  .filelist .item.active{background:#16283a}
+  .filelist .item input{accent-color:var(--accent);width:14px;height:14px;flex:none}
+  .filelist .item .fn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+  .filelist .item .ext{font-size:10px;color:var(--ink-dim);text-transform:uppercase;flex:none}
+
+  .row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .row label{font-size:13px}
+  .row .val{font-family:var(--mono);font-size:12px;color:var(--accent);
+    background:#0e1620;padding:1px 7px;border-radius:4px;min-width:38px;text-align:right}
+  input[type=range]{width:100%;accent-color:var(--accent);height:4px;margin:2px 0 4px}
+  input[type=number]{
+    width:100%;background:#0e1620;border:1px solid var(--line);color:var(--ink);
+    padding:6px 8px;border-radius:5px;font-family:var(--mono);font-size:13px;
+  }
+  select{
+    width:100%;background:#0e1620;border:1px solid var(--line);color:var(--ink);
+    padding:7px 8px;border-radius:5px;font-family:var(--sans);font-size:13px;cursor:pointer;
+  }
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{
+    flex:1;background:var(--panel-2);border:0;color:var(--ink-dim);padding:7px;
+    cursor:pointer;font-size:12.5px;font-family:var(--sans);transition:.12s;
+  }
+  .seg button.on{background:var(--accent);color:#04121d;font-weight:600}
+  .check{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;padding:4px 0}
+  .check input{accent-color:var(--accent);width:15px;height:15px}
+  .hint{font-size:11.5px;color:var(--ink-dim);margin-top:3px;line-height:1.45}
+
+  /* count readout */
+  .readout{
+    background:linear-gradient(160deg,#12202b,#0e1620);
+    border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+    margin-bottom:16px;display:flex;align-items:baseline;gap:12px;
+  }
+  .readout .num{font-family:var(--mono);font-size:38px;font-weight:600;
+    color:var(--accent);line-height:1;letter-spacing:-1px}
+  .readout .cap{font-size:12px;color:var(--ink-dim)}
+  .readout .cap b{color:var(--ink);display:block;font-size:13px;font-weight:500}
+
+  /* footer bar in stage */
+  .statusbar{
+    border-top:1px solid var(--line);background:var(--panel);
+    padding:9px 18px;display:flex;align-items:center;gap:16px;font-size:12.5px;
+  }
+  .statusbar .msg{color:var(--ink-dim);font-family:var(--mono);flex:1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .statusbar .msg.ok{color:var(--ok)}
+  .statusbar .msg.warn{color:var(--warn)}
+  .bar{width:180px;height:6px;background:#0e1620;border-radius:3px;overflow:hidden;border:1px solid var(--line)}
+  .bar > i{display:block;height:100%;width:0;background:var(--accent);transition:width .12s}
+  .filenav{display:flex;align-items:center;gap:8px}
+  .filenav button{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
+    width:28px;height:26px;border-radius:5px;cursor:pointer;font-family:var(--mono)}
+  .filenav button:hover{border-color:var(--accent)}
+  .filenav .pos{font-family:var(--mono);font-size:12px;color:var(--ink-dim);min-width:64px;text-align:center}
+
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#2a313c;border-radius:5px;border:2px solid var(--panel)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  @media (max-width:820px){
+    main{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+    .controls{border-right:0;border-bottom:1px solid var(--line);max-height:46vh}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo"><b>◎</b> Nuclei<b>Counter</b></span>
+  <span class="sub">批量荧光细胞核计数 · 全程在本机浏览器运行，图片不上传</span>
+  <span class="spacer"></span>
+  <span class="env" id="envtag">就绪</span>
+</header>
+
+<main>
+  <aside class="controls">
+    <div class="grp">
+      <div class="lab">图像源</div>
+      <button class="file" id="pickBtn">选择文件夹 / 多张图片</button>
+      <input type="file" id="fileInput" accept="image/*,.tif,.tiff" multiple webkitdirectory style="display:none">
+      <input type="file" id="fileInput2" accept="image/*,.tif,.tiff" multiple style="display:none">
+      <div class="hint">可选整个文件夹，或按住 Ctrl 多选。支持 TIFF、PNG、JPG、BMP、WebP、GIF。</div>
+      <div class="folder-meta" id="folderMeta">尚未载入图片</div>
+      <div class="filelist-wrap" id="filelistWrap" style="display:none">
+        <div class="filelist-head">
+          <label class="check tiny"><input type="checkbox" id="selectAll" checked> 全选</label>
+          <span class="sel-count" id="selCount"></span>
+        </div>
+        <div class="filelist" id="filelist"></div>
+      </div>
+    </div>
+
+    <div class="readout">
+      <span class="num" id="countNum">—</span>
+      <span class="cap"><b>细胞核数量</b>当前预览图</span>
+    </div>
+
+    <div class="grp">
+      <div class="lab">通道</div>
+      <select id="channel">
+        <option value="2" selected>蓝 · Blue (DAPI，通常选此)</option>
+        <option value="0">红 · Red</option>
+        <option value="1">绿 · Green</option>
+        <option value="-1">灰度平均</option>
+      </select>
+    </div>
+
+    <div class="grp">
+      <div class="lab">背景与阈值</div>
+      <div class="row"><label>背景去除半径</label><span class="val" id="bgVal">50</span></div>
+      <input type="range" id="bg" min="0" max="100" value="50">
+      <div class="hint">去除不均匀背景 / 噪音，0 = 不处理。</div>
+
+      <div style="height:12px"></div>
+      <div class="seg" id="threshSeg">
+        <button data-mode="otsu" class="on">Otsu 自动</button>
+        <button data-mode="manual">手动阈值</button>
+      </div>
+      <div id="manualWrap" style="display:none;margin-top:10px">
+        <div class="row"><label>手动阈值</label><span class="val" id="mtVal">20</span></div>
+        <input type="range" id="mt" min="0" max="255" value="20">
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="lab">核筛选</div>
+      <div class="row"><label>最小核面积 (px)</label><span class="val" id="msVal">30</span></div>
+      <input type="range" id="ms" min="0" max="500" value="30">
+
+      <div style="height:10px"></div>
+      <label class="check"><input type="checkbox" id="split" checked> Watershed 拆分粘连核</label>
+
+      <div style="height:8px"></div>
+      <div class="row"><label>分割最小间距</label><span class="val" id="mdVal">8</span></div>
+      <input type="range" id="md" min="1" max="40" value="8">
+      <div class="hint">相邻核中心的最小距离；核偏大就调大。</div>
+    </div>
+
+    <div class="grp">
+      <div class="lab">导出</div>
+      <button class="primary" id="batchBtn" disabled>批量计数选中项并下载 CSV</button>
+      <div class="hint">按顺序处理选中的图片，生成 filename,count 两列。</div>
+    </div>
+  </aside>
+
+  <section class="stage">
+    <div class="viewport" id="viewport">
+      <div class="empty" id="emptyState">
+        <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
+          <circle cx="8" cy="9" r="2.4"/><circle cx="15" cy="7" r="1.7"/>
+          <circle cx="16" cy="15" r="2.1"/><circle cx="9" cy="16" r="1.5"/>
+          <rect x="2.5" y="2.5" width="19" height="19" rx="2.5"/>
+        </svg>
+        载入图片后在此显示灰度图与红色核轮廓
+      </div>
+      <canvas id="canvas" style="display:none"></canvas>
+    </div>
+    <div class="statusbar">
+      <div class="filenav" id="filenav" style="display:none">
+        <button id="prevBtn">‹</button>
+        <span class="pos" id="posLabel">0 / 0</span>
+        <button id="nextBtn">›</button>
+      </div>
+      <span class="msg" id="status">选择文件夹开始</span>
+      <div class="bar"><i id="barFill"></i></div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* ============================================================
+   NucleiCounter — pure front-end implementation (multi-threaded, optimized)
+   All computation runs in Web Worker background threads, so the UI never freezes.
+   Pipeline: channel extraction -> fast Gaussian background removal (box-blur approx) ->
+        Otsu/manual threshold -> 8-connectivity labeling -> area filtering ->
+        distance transform + local-maxima seeds + bucket-sort watershed split -> count
+   ============================================================ */
+
+/* ---------- Worker source (a string, instantiated at runtime via Blob) ----------
+   This keeps the whole app as a single HTML file: double-click to run, no server needed. */
+const WORKER_SRC = String.raw`
+"use strict";
+
+/* --- Minimal TIFF decoder (uncompressed RGB/grayscale, strip-based) --- */
+function decodeTIFF(buf){
+  const dv=new DataView(buf);
+  let little;const bom=dv.getUint16(0,false);
+  if(bom===0x4949)little=true;else if(bom===0x4D4D)little=false;else throw new Error("不是 TIFF 文件");
+  const u16=o=>dv.getUint16(o,little),u32=o=>dv.getUint32(o,little);
+  if(u16(2)!==42)throw new Error("不支持的 TIFF 版本");
+  let ifd=u32(4);const tags={};
+  const WANT=new Set([256,257,258,259,262,273,277,278,279,324,325]);
+  const n=u16(ifd);
+  for(let i=0;i<n;i++){
+    const e=ifd+2+i*12,tag=u16(e),type=u16(e+2),cnt=u32(e+4);
+    if(!WANT.has(tag))continue;
+    const ts={1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8}[type]||1;
+    const total=ts*cnt;const valOff=total<=4?e+8:u32(e+8);
+    const read=k=>{const o=valOff+k*ts;
+      if(type===3)return u16(o);if(type===4)return u32(o);
+      if(type===1||type===6||type===7)return dv.getUint8(o);return u32(o);};
+    const arr=[];for(let k=0;k<cnt;k++)arr.push(read(k));tags[tag]=arr;
+  }
+  const g=(t,d)=>tags[t]?tags[t][0]:d;
+  const width=g(256),height=g(257);const bps=tags[258]?tags[258]:[8];
+  const spp=g(277,1),compression=g(259,1),photometric=g(262,1);
+  if(compression!==1)throw new Error("暂不支持压缩 TIFF（compression="+compression+"）。请在 ImageJ 另存为未压缩 TIFF。");
+  const stripOffsets=tags[273]||tags[324];const rowsPerStrip=g(278,height);
+  if(!stripOffsets)throw new Error("TIFF 缺少像素数据偏移");
+  const out=new Uint8ClampedArray(width*height*3);
+  const bytesPerSample=(bps[0]||8)/8,maxVal=(1<<(bps[0]||8))-1;let px=0;
+  const readSample=o=>bytesPerSample===1?dv.getUint8(o):bytesPerSample===2?u16(o):u32(o);
+  for(let s=0;s<stripOffsets.length;s++){
+    let o=stripOffsets[s];const rows=Math.min(rowsPerStrip,height-s*rowsPerStrip);
+    const pixInStrip=rows*width;
+    for(let p=0;p<pixInStrip;p++){
+      let r,gg,b;
+      if(spp>=3){r=readSample(o);o+=bytesPerSample;gg=readSample(o);o+=bytesPerSample;b=readSample(o);o+=bytesPerSample;
+        for(let ex=3;ex<spp;ex++)o+=bytesPerSample;}
+      else{let v=readSample(o);o+=bytesPerSample;if(maxVal>255)v=Math.round(v/maxVal*255);if(photometric===0)v=255-v;r=gg=b=v;}
+      if(maxVal>255&&spp>=3){r=Math.round(r/maxVal*255);gg=Math.round(gg/maxVal*255);b=Math.round(b/maxVal*255);}
+      out[px++]=r;out[px++]=gg;out[px++]=b;
+    }
+  }
+  return {width,height,rgb:out};
+}
+
+function extractChannel(img,ch){
+  const w=img.width,h=img.height,rgb=img.rgb;const g=new Float32Array(w*h);
+  for(let i=0,j=0;i<w*h;i++,j+=3){const r=rgb[j],gr=rgb[j+1],b=rgb[j+2];
+    g[i]=ch===0?r:ch===1?gr:ch===2?b:(r+gr+b)/3;}
+  return g;
+}
+
+/* --- Fast Gaussian: three box blurs approximate a Gaussian, O(N) and radius-independent --- */
+function boxBlurH(src,dst,w,h,r){
+  if(r<1){dst.set(src);return;}
+  const iarr=1/(r+r+1);
+  for(let y=0;y<h;y++){
+    let ti=y*w,li=ti,ri=ti+r;const fv=src[ti],lv=src[ti+w-1];let val=(r+1)*fv;
+    for(let j=0;j<r;j++)val+=src[ti+j];
+    for(let j=0;j<=r;j++){val+=src[ri++]-fv;dst[ti++]=val*iarr;}
+    for(let j=r+1;j<w-r;j++){val+=src[ri++]-src[li++];dst[ti++]=val*iarr;}
+    for(let j=w-r;j<w;j++){val+=lv-src[li++];dst[ti++]=val*iarr;}
+  }
+}
+function boxBlurT(src,dst,w,h,r){
+  if(r<1){dst.set(src);return;}
+  const iarr=1/(r+r+1);
+  for(let x=0;x<w;x++){
+    let ti=x,li=ti,ri=ti+r*w;const fv=src[ti],lv=src[ti+w*(h-1)];let val=(r+1)*fv;
+    for(let j=0;j<r;j++)val+=src[ti+j*w];
+    for(let j=0;j<=r;j++){val+=src[ri]-fv;dst[ti]=val*iarr;ri+=w;ti+=w;}
+    for(let j=r+1;j<h-r;j++){val+=src[ri]-src[li];dst[ti]=val*iarr;li+=w;ri+=w;ti+=w;}
+    for(let j=h-r;j<h;j++){val+=lv-src[li];dst[ti]=val*iarr;li+=w;ti+=w;}
+  }
+}
+function fastGaussian(src,w,h,sigma){
+  if(sigma<=0)return src.slice();
+  const n=3;const wIdeal=Math.sqrt((12*sigma*sigma/n)+1);
+  let wl=Math.floor(wIdeal);if(wl%2===0)wl--;const wu=wl+2;
+  const mIdeal=(12*sigma*sigma-n*wl*wl-4*n*wl-3*n)/(-4*wl-4);const m=Math.round(mIdeal);
+  const sizes=[];for(let i=0;i<n;i++)sizes.push(i<m?wl:wu);
+  let a=src.slice(),b=new Float32Array(w*h);
+  for(let i=0;i<n;i++){const r=(sizes[i]-1)/2|0;boxBlurH(a,b,w,h,r);boxBlurT(b,a,w,h,r);}
+  return a;
+}
+
+function otsu(g){
+  const hist=new Int32Array(256);let total=0;
+  for(let i=0;i<g.length;i++){const b=Math.min(255,Math.max(0,g[i]|0));if(b>0){hist[b]++;total++;}}
+  if(total===0)return 0;
+  let sumAll=0;for(let i=0;i<256;i++)sumAll+=i*hist[i];
+  let sumB=0,wB=0,mv=-1,th=0;
+  for(let t=0;t<256;t++){wB+=hist[t];if(wB===0)continue;const wF=total-wB;if(wF===0)break;
+    sumB+=t*hist[t];const mB=sumB/wB,mF=(sumAll-sumB)/wF;const bt=wB*wF*(mB-mF)*(mB-mF);
+    if(bt>mv){mv=bt;th=t;}}
+  return th;
+}
+
+function distanceTransform(mask,w,h){
+  const INF=1e9,d=new Float32Array(w*h);
+  for(let i=0;i<d.length;i++)d[i]=mask[i]?INF:0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!mask[i])continue;
+    if(x>0)d[i]=Math.min(d[i],d[i-1]+1);if(y>0)d[i]=Math.min(d[i],d[i-w]+1);
+    if(x>0&&y>0)d[i]=Math.min(d[i],d[i-w-1]+1.4142);if(x<w-1&&y>0)d[i]=Math.min(d[i],d[i-w+1]+1.4142);}
+  for(let y=h-1;y>=0;y--)for(let x=w-1;x>=0;x--){const i=y*w+x;if(!mask[i])continue;
+    if(x<w-1)d[i]=Math.min(d[i],d[i+1]+1);if(y<h-1)d[i]=Math.min(d[i],d[i+w]+1);
+    if(x<w-1&&y<h-1)d[i]=Math.min(d[i],d[i+w+1]+1.4142);if(x>0&&y<h-1)d[i]=Math.min(d[i],d[i+w-1]+1.4142);}
+  return d;
+}
+
+var N8x=[-1,0,1,-1,1,-1,0,1],N8y=[-1,-1,-1,0,0,1,1,1];
+
+function connectedComponents(mask,w,h){
+  const labels=new Int32Array(w*h);let label=0;const stack=new Int32Array(w*h);
+  for(let s=0;s<w*h;s++){
+    if(!mask[s]||labels[s]!==0)continue;label++;
+    let sp=0;stack[sp++]=s;labels[s]=label;
+    while(sp>0){const cur=stack[--sp],cx=cur%w,cy=(cur/w)|0;
+      for(let d=0;d<8;d++){const nx=cx+N8x[d],ny=cy+N8y[d];if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        const ni=ny*w+nx;if(mask[ni]&&labels[ni]===0){labels[ni]=label;stack[sp++]=ni;}}}
+  }
+  return {labels,count:label};
+}
+
+function watershedSplit(mask,w,h,minDist){
+  const dist=distanceTransform(mask,w,h);
+  const seeds=new Uint8Array(w*h);const r=Math.max(1,minDist);
+  // Only scan foreground pixels for local maxima
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x;if(!mask[i]||dist[i]<1)continue;let isMax=true;
+    for(let ny=Math.max(0,y-r);ny<=Math.min(h-1,y+r)&&isMax;ny++)
+      for(let nx=Math.max(0,x-r);nx<=Math.min(w-1,x+r);nx++)
+        if(dist[ny*w+nx]>dist[i]){isMax=false;break;}
+    if(isMax)seeds[i]=1;
+  }
+  const seedLabel=new Int32Array(w*h);let label=0;const st=new Int32Array(w*h);
+  for(let s=0;s<w*h;s++){if(seeds[s]===0||seedLabel[s]!==0)continue;label++;
+    let sp=0;st[sp++]=s;seedLabel[s]=label;
+    while(sp>0){const cur=st[--sp],cx=cur%w,cy=(cur/w)|0;
+      for(let d=0;d<8;d++){const nx=cx+N8x[d],ny=cy+N8y[d];if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        const ni=ny*w+nx;if(seeds[ni]===1&&seedLabel[ni]===0){seedLabel[ni]=label;st[sp++]=ni;}}}}
+  if(label===0)return connectedComponents(mask,w,h);
+
+  const out=seedLabel.slice();
+  // Bucket sort: only foreground pixels, by descending distance (an order of magnitude faster than sorting the full array)
+  const fg=[];for(let i=0;i<w*h;i++)if(mask[i])fg.push(i);
+  let maxD=0;for(let i=0;i<fg.length;i++)if(dist[fg[i]]>maxD)maxD=dist[fg[i]];
+  const nb=Math.ceil(maxD)+1;const buckets=new Array(nb);for(let i=0;i<nb;i++)buckets[i]=[];
+  for(let i=0;i<fg.length;i++)buckets[Math.min(nb-1,dist[fg[i]]|0)].push(fg[i]);
+  const order=new Int32Array(fg.length);let oi=0;
+  for(let b=nb-1;b>=0;b--){const bu=buckets[b];for(let k=0;k<bu.length;k++)order[oi++]=bu[k];}
+
+  let changed=true;
+  for(let pass=0;pass<300&&changed;pass++){
+    changed=false;
+    for(let k=0;k<order.length;k++){const idx=order[k];if(out[idx]!==0)continue;
+      const cx=idx%w,cy=(idx/w)|0;let found=0;
+      for(let d=0;d<8;d++){const nx=cx+N8x[d],ny=cy+N8y[d];if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        const nl=out[ny*w+nx];if(nl!==0){found=nl;break;}}
+      if(found!==0){out[idx]=found;changed=true;}}
+  }
+  let max=0;for(let i=0;i<out.length;i++)if(out[i]>max)max=out[i];
+  return {labels:out,count:max};
+}
+
+function countNuclei(img,p){
+  const w=img.width,h=img.height;
+  let g=extractChannel(img,p.channel);
+  if(p.bgRadius>0){const bg=fastGaussian(g,w,h,p.bgRadius);for(let i=0;i<g.length;i++)g[i]=Math.max(0,g[i]-bg[i]);}
+  const t=p.otsu?otsu(g):p.manualThresh;
+  const mask=new Uint8Array(w*h);for(let i=0;i<g.length;i++)mask[i]=g[i]>t?1:0;
+  const cc=connectedComponents(mask,w,h);const labels=cc.labels;
+  const areas=new Int32Array(cc.count+1);
+  for(let i=0;i<labels.length;i++)if(labels[i])areas[labels[i]]++;
+  for(let i=0;i<labels.length;i++){if(labels[i]&&areas[labels[i]]<p.minSize){mask[i]=0;labels[i]=0;}}
+  const res=p.split?watershedSplit(mask,w,h,p.minDistance):connectedComponents(mask,w,h);
+  return {count:res.count,labels:res.labels,width:w,height:h,gray:g};
+}
+
+/* Preview data: collapse labels into a 0/1 boundary map + normalized grayscale to reduce transfer size */
+function buildPreview(res){
+  const w=res.width,h=res.height,lab=res.labels,g=res.gray;
+  let max=1;for(let i=0;i<g.length;i++)if(g[i]>max)max=g[i];
+  const gray8=new Uint8Array(w*h);const edge=new Uint8Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;
+    gray8[i]=(g[i]/max*255)|0;
+    if(lab[i]!==0){
+      if((x>0&&lab[i-1]!==lab[i])||(x<w-1&&lab[i+1]!==lab[i])||
+         (y>0&&lab[i-w]!==lab[i])||(y<h-1&&lab[i+w]!==lab[i]))edge[i]=1;
+    }
+  }
+  return {gray8,edge,width:w,height:h};
+}
+
+/* Worker message handler */
+self.onmessage=function(ev){
+  const msg=ev.data;
+  try{
+    if(msg.type==="decode"){
+      const img=decodeTIFF(msg.buf);
+      // Return via transferable, zero-copy
+      self.postMessage({type:"decoded",id:msg.id,width:img.width,height:img.height,rgb:img.rgb.buffer},[img.rgb.buffer]);
+    }else if(msg.type==="count"){
+      const img={width:msg.width,height:msg.height,rgb:new Uint8ClampedArray(msg.rgb)};
+      const res=countNuclei(img,msg.params);
+      if(msg.wantPreview){
+        const pv=buildPreview(res);
+        self.postMessage({type:"result",id:msg.id,count:res.count,
+          preview:{width:pv.width,height:pv.height,gray8:pv.gray8.buffer,edge:pv.edge.buffer},
+          rgb:img.rgb.buffer},
+          [pv.gray8.buffer,pv.edge.buffer,img.rgb.buffer]);
+      }else{
+        self.postMessage({type:"result",id:msg.id,count:res.count,rgb:img.rgb.buffer},[img.rgb.buffer]);
+      }
+    }
+  }catch(err){
+    self.postMessage({type:"error",id:msg.id,message:err.message});
+  }
+};
+`;
+
+/* ============================================================
+   Main thread: UI + Worker pool scheduling
+   ============================================================ */
+const $=s=>document.querySelector(s);
+
+/* Build a Worker pool sized to CPU cores (max 4) to parallelize batch processing across cores */
+const POOL_SIZE=Math.max(1,Math.min(4,(navigator.hardwareConcurrency||2)));
+const workerBlobURL=URL.createObjectURL(new Blob([WORKER_SRC],{type:"text/javascript"}));
+function makeWorker(){return new Worker(workerBlobURL);}
+
+const state={
+  files:[], names:[], selected:[], idx:0,
+  rgbCache:new Map(),   // idx -> {width,height,rgb(ArrayBuffer)} decoded cache
+  previewWorker:makeWorker(),
+  previewJob:0,
+};
+
+function params(){
+  return {
+    channel:parseInt($("#channel").value,10),
+    bgRadius:parseInt($("#bg").value,10),
+    otsu:$("#threshSeg .on").dataset.mode==="otsu",
+    manualThresh:parseInt($("#mt").value,10),
+    minSize:parseInt($("#ms").value,10),
+    minDistance:parseInt($("#md").value,10),
+    split:$("#split").checked,
+  };
+}
+function setStatus(msg,cls){const el=$("#status");el.textContent=msg;el.className="msg"+(cls?" "+cls:"");}
+function setProgress(v){$("#barFill").style.width=(v*100)+"%";}
+
+/* File selection */
+$("#pickBtn").addEventListener("click",()=>$("#fileInput").click());
+
+const IMG_RE=/\.(tiff?|png|jpe?g|bmp|webp|gif)$/i;
+function extOf(name){const m=name.match(/\.([a-z0-9]+)$/i);return m?m[1].toLowerCase():"";}
+function isTiff(name){return /\.tiff?$/i.test(name);}
+
+function handleFiles(fileList){
+  const files=[...fileList].filter(f=>IMG_RE.test(f.name));
+  if(!files.length){setStatus("未找到支持的图片文件（TIFF/PNG/JPG/BMP/WebP/GIF）","warn");return;}
+  files.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+  state.files=files;state.names=files.map(f=>f.name);
+  state.selected=files.map(()=>true); // all selected by default
+  state.idx=0;state.rgbCache.clear();
+  buildFileList();
+  $("#folderMeta").textContent=files.length+" 张图片 · "+POOL_SIZE+" 线程并行";
+  $("#filelistWrap").style.display="block";
+  $("#emptyState").style.display="none";
+  $("#canvas").style.display="block";
+  $("#filenav").style.display="flex";
+  $("#batchBtn").disabled=false;
+  updatePos();previewCurrent();
+}
+$("#fileInput").addEventListener("change",e=>{
+  if(e.target.files.length)handleFiles(e.target.files);else $("#fileInput2").click();
+});
+$("#pickBtn").addEventListener("contextmenu",e=>{e.preventDefault();$("#fileInput2").click();});
+$("#fileInput2").addEventListener("change",e=>{if(e.target.files.length)handleFiles(e.target.files);});
+
+/* Build the checkbox file list so the user can choose which images to process */
+function buildFileList(){
+  const box=$("#filelist");box.innerHTML="";
+  state.files.forEach((f,i)=>{
+    const item=document.createElement("div");
+    item.className="item"+(i===state.idx?" active":"");
+    item.dataset.idx=i;
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=state.selected[i];
+    cb.addEventListener("click",ev=>{ev.stopPropagation();state.selected[i]=cb.checked;updateSelCount();});
+    const fn=document.createElement("span");fn.className="fn";fn.textContent=f.name;
+    const ext=document.createElement("span");ext.className="ext";ext.textContent=extOf(f.name);
+    item.appendChild(cb);item.appendChild(fn);item.appendChild(ext);
+    // 点击行(非复选框)切换预览到该图
+    item.addEventListener("click",()=>{state.idx=i;updatePos();highlightActive();previewCurrent();});
+    box.appendChild(item);
+  });
+  updateSelCount();
+}
+function highlightActive(){
+  [...$("#filelist").children].forEach(el=>el.classList.toggle("active",+el.dataset.idx===state.idx));
+}
+function updateSelCount(){
+  const n=state.selected.filter(Boolean).length;
+  $("#selCount").textContent=n+" / "+state.files.length+" 已选";
+  $("#selectAll").checked=(n===state.files.length);
+  $("#selectAll").indeterminate=(n>0&&n<state.files.length);
+  $("#batchBtn").disabled=(n===0);
+}
+$("#selectAll").addEventListener("change",()=>{
+  const on=$("#selectAll").checked;
+  state.selected=state.files.map(()=>on);
+  [...$("#filelist").querySelectorAll(".item input")].forEach(cb=>cb.checked=on);
+  updateSelCount();
+});
+
+/* Decode (done in a dedicated worker to avoid blocking). Returns {width,height,rgb:ArrayBuffer} */
+function decodeInWorker(worker,buf,id){
+  return new Promise((resolve,reject)=>{
+    const onmsg=ev=>{const d=ev.data;if(d.id!==id)return;worker.removeEventListener("message",onmsg);
+      if(d.type==="error")reject(new Error(d.message));
+      else resolve({width:d.width,height:d.height,rgb:d.rgb});};
+    worker.addEventListener("message",onmsg);
+    worker.postMessage({type:"decode",id,buf},[buf]);
+  });
+}
+
+/* Decode non-TIFF formats (PNG/JPG/BMP/WebP/GIF) using the browser's native image decoder.
+   Runs on the main thread but is GPU/native-backed and fast. Returns {width,height,rgb:ArrayBuffer}. */
+async function decodeNativeImage(file){
+  const url=URL.createObjectURL(file);
+  try{
+    let bmp;
+    try{ bmp=await createImageBitmap(file); }
+    catch(_){ // fallback via <img>
+      bmp=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error("图片解码失败"));im.src=url;});
+    }
+    const w=bmp.width,h=bmp.height;
+    const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+    const ctx=cv.getContext("2d",{willReadFrequently:true});
+    ctx.drawImage(bmp,0,0);
+    const data=ctx.getImageData(0,0,w,h).data; // RGBA
+    const rgb=new Uint8ClampedArray(w*h*3);
+    for(let i=0,j=0,k=0;i<w*h;i++,j+=4,k+=3){rgb[k]=data[j];rgb[k+1]=data[j+1];rgb[k+2]=data[j+2];}
+    if(bmp.close)bmp.close();
+    return {width:w,height:h,rgb:rgb.buffer};
+  }finally{URL.revokeObjectURL(url);}
+}
+
+/* Unified decode: TIFF -> worker's custom decoder; others -> native browser decoder */
+async function decodeFile(file,worker,id){
+  if(isTiff(file.name)){
+    const buf=await file.arrayBuffer();
+    return decodeInWorker(worker,buf,id);
+  }
+  return decodeNativeImage(file);
+}
+
+/* Get decoded RGB (cached). Note: rgb is transferable, so keep a copy when reusing */
+async function getRGB(i){
+  if(state.rgbCache.has(i)){
+    const c=state.rgbCache.get(i);
+    return {width:c.width,height:c.height,rgb:c.rgb.slice(0)}; // copy handed to the worker for transfer
+  }
+  const dec=await decodeFile(state.files[i],state.previewWorker,"dec"+i);
+  state.rgbCache.set(i,{width:dec.width,height:dec.height,rgb:dec.rgb});
+  return {width:dec.width,height:dec.height,rgb:dec.rgb.slice(0)};
+}
+
+/* Preview: debounce + job counter to prevent stale results overwriting newer ones */
+let previewTimer=null;
+function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(previewCurrent,140);}
+
+async function previewCurrent(){
+  if(!state.files.length)return;
+  const job=++state.previewJob;
+  setStatus("计算中…");
+  try{
+    const img=await getRGB(state.idx);
+    if(job!==state.previewJob)return; // a newer request exists
+    const p=params();
+    const id="pv"+job;
+    const worker=state.previewWorker;
+    const onmsg=ev=>{
+      const d=ev.data;if(d.id!==id)return;
+      worker.removeEventListener("message",onmsg);
+      if(job!==state.previewJob)return;
+      if(d.type==="error"){setStatus("错误："+d.message,"warn");$("#countNum").textContent="—";return;}
+      // Cache the returned rgb (transferred back from the worker) to avoid re-decoding next time
+      state.rgbCache.set(state.idx,{width:d.preview.width,height:d.preview.height,rgb:d.rgb,
+        _keepGray:true});
+      drawPreview(d.preview);
+      $("#countNum").textContent=d.count;
+      setStatus(state.names[state.idx]+"  ·  "+d.preview.width+"×"+d.preview.height,"ok");
+    };
+    worker.addEventListener("message",onmsg);
+    worker.postMessage({type:"count",id,width:img.width,height:img.height,rgb:img.rgb,
+      params:p,wantPreview:true},[img.rgb]);
+  }catch(err){
+    if(job===state.previewJob){setStatus("错误："+err.message,"warn");$("#countNum").textContent="—";}
+  }
+}
+
+/* Draw preview (gray8 + edge) onto the canvas */
+function drawPreview(pv){
+  const w=pv.width,h=pv.height;
+  const canvas=$("#canvas");canvas.width=w;canvas.height=h;
+  const ctx=canvas.getContext("2d");
+  const id=ctx.createImageData(w,h);const data=id.data;
+  const gray=new Uint8Array(pv.gray8),edge=new Uint8Array(pv.edge);
+  for(let i=0,j=0;i<w*h;i++,j+=4){
+    if(edge[i]){data[j]=255;data[j+1]=90;data[j+2]=90;}
+    else{const v=gray[i];data[j]=v;data[j+1]=v;data[j+2]=v;}
+    data[j+3]=255;
+  }
+  ctx.putImageData(id,0,0);
+}
+
+function updatePos(){$("#posLabel").textContent=(state.idx+1)+" / "+state.files.length;}
+$("#prevBtn").addEventListener("click",()=>{if(state.idx>0){state.idx--;updatePos();highlightActive();previewCurrent();}});
+$("#nextBtn").addEventListener("click",()=>{if(state.idx<state.files.length-1){state.idx++;updatePos();highlightActive();previewCurrent();}});
+
+/* Slider bindings */
+function bindSlider(id,valId){const s=$("#"+id),v=$("#"+valId);
+  s.addEventListener("input",()=>{v.textContent=s.value;schedulePreview();});}
+bindSlider("bg","bgVal");bindSlider("ms","msVal");bindSlider("md","mdVal");bindSlider("mt","mtVal");
+$("#channel").addEventListener("change",previewCurrent);
+$("#split").addEventListener("change",previewCurrent);
+$("#threshSeg").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;
+  [...$("#threshSeg").children].forEach(b=>b.classList.remove("on"));btn.classList.add("on");
+  $("#manualWrap").style.display=btn.dataset.mode==="manual"?"block":"none";previewCurrent();});
+
+/* ---------- Batch processing: parallel Worker pool (selected files only) ---------- */
+$("#batchBtn").addEventListener("click",async()=>{
+  if(!state.files.length)return;
+  // 只处理被勾选的图片，保持原文件顺序
+  const queue=[];for(let i=0;i<state.files.length;i++)if(state.selected[i])queue.push(i);
+  if(!queue.length){setStatus("未选择任何图片","warn");return;}
+
+  const p=params();
+  const results={};       // idx -> count
+  let done=0,total=0;
+  $("#batchBtn").disabled=true;
+  setProgress(0);setStatus("处理中… 0/"+queue.length);
+
+  // Build a temporary worker pool
+  const pool=[];for(let i=0;i<POOL_SIZE;i++)pool.push(makeWorker());
+  let qp=0; // queue pointer
+
+  const runOne=(worker)=>new Promise(async(resolve)=>{
+    if(qp>=queue.length){resolve();return;}
+    const i=queue[qp++];
+    const id="b"+i;
+    try{
+      let img;
+      if(state.rgbCache.has(i)){const c=state.rgbCache.get(i);img={width:c.width,height:c.height,rgb:c.rgb.slice(0)};}
+      else{const dec=await decodeFile(state.files[i],worker,"bd"+i);
+        state.rgbCache.set(i,{width:dec.width,height:dec.height,rgb:dec.rgb.slice(0)});
+        img={width:dec.width,height:dec.height,rgb:dec.rgb};}
+
+      const onmsg=ev=>{const d=ev.data;if(d.id!==id)return;worker.removeEventListener("message",onmsg);
+        results[i]=(d.type==="error")?"ERROR":d.count;
+        if(typeof results[i]==="number")total+=results[i];
+        done++;setProgress(done/queue.length);
+        setStatus("处理中… "+done+"/"+queue.length);
+        resolve(runOne(worker)); // this worker picks up the next image
+      };
+      worker.addEventListener("message",onmsg);
+      worker.postMessage({type:"count",id,width:img.width,height:img.height,rgb:img.rgb,
+        params:p,wantPreview:false},[img.rgb]);
+    }catch(err){results[i]="ERROR";done++;setProgress(done/queue.length);resolve(runOne(worker));}
+  });
+
+  await Promise.all(pool.map(w=>runOne(w)));
+  pool.forEach(w=>w.terminate());
+
+  const rows=["filename,nuclei_count"];
+  for(const i of queue)rows.push(state.names[i]+","+results[i]);
+  const csv="\ufeff"+rows.join("\n");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="nuclei_counts.csv";a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus("完成！"+queue.length+" 张图共 "+total+" 个核 · 已下载 nuclei_counts.csv","ok");
+  setProgress(0);$("#batchBtn").disabled=false;
+});
+
+/* Drag-and-drop loading */
+document.addEventListener("dragover",e=>e.preventDefault());
+document.addEventListener("drop",e=>{e.preventDefault();if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files);});
+</script>
+</body>
+</html>
